@@ -1,14 +1,36 @@
-use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::io::{self, Write, Read};
+use std::thread;
 
-fn main() -> io::Result<()> {
+fn main() -> std::io::Result<()> {
     let mut stream = TcpStream::connect("127.0.0.1:7878")?;
-    println!("Connected to the server!");
+    println!("Successfully connected to server in port 7878");
 
-    let mut buffer = [0; 1024];
+    // thread para receber as mensagens do servidor a qualquer momento que forem enviadas
+    let mut stream_clone = stream.try_clone().expect("Failed to clone stream");
+    thread::spawn(move || {
+        let mut buffer = [0; 512];
+        loop {
+            match stream_clone.read(&mut buffer) {
+                Ok(size) => {
+                    if size > 0 {
+                        println!("{}", String::from_utf8_lossy(&buffer[..size]));
+                    }
+                }
+                Err(_) => {
+                    println!("Connection closed by server");
+                    break;
+                }
+            }
+        }
+    });
 
-    let n = stream.read(&mut buffer)?;
-    println!("Received: {}", String::from_utf8_lossy(&buffer[..n]));
+    // loop sem thread para esperar o cliente escrever uma mensagem
+    loop {
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
 
-    Ok(())
+        let msg = input.trim().as_bytes();
+        stream.write_all(msg)?;
+    }
 }
