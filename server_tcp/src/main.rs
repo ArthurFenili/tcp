@@ -10,14 +10,31 @@ fn handle_client(stream: TcpStream, client_number: i32, clients: Arc<Mutex<Vec<T
         match stream.try_clone().unwrap().read(&mut buffer) {
             Ok(size) => {
                 if size > 0 {
-                    if let Ok(msg) = std::str::from_utf8(&buffer[0..size]) {
-                        println!("CLIENT {}: {}", client_number, msg);
-                        let message = format!("CLIENT {}: {}", client_number, msg);
+                    if let Ok(received) = std::str::from_utf8(&buffer[0..size]) {
+                        if received.starts_with("END/") {
+                            let message = format!("CLIENT {} disconnected.", client_number);
+                            println!("{}", message);
+                            let mut clients_guard = clients.lock().unwrap();
+                            if let Some(pos) = clients_guard.iter().position(|x| x.peer_addr().unwrap() == stream.peer_addr().unwrap()) {
+                                clients_guard.remove(pos);
+                            }
+                            for mut client in clients_guard.iter() {
+                                if client.peer_addr().unwrap() != stream.peer_addr().unwrap() {
+                                    client.write_all(message.as_bytes()).unwrap();
+                                }
+                            }
+                            break;
+                        }
+                        else if received.starts_with("CHAT/ ") {
+                            let msg = &received[6..];
+                            println!("CLIENT {}: {}", client_number, msg);
+                            let message = format!("CLIENT {}: {}", client_number, msg);
 
-                        let clients_guard = clients.lock().unwrap();
-                        for mut client in clients_guard.iter() {
-                            if client.peer_addr().unwrap() != stream.peer_addr().unwrap() {
-                                client.write_all(message.as_bytes()).unwrap();
+                            let clients_guard = clients.lock().unwrap();
+                            for mut client in clients_guard.iter() {
+                                if client.peer_addr().unwrap() != stream.peer_addr().unwrap() {
+                                    client.write_all(message.as_bytes()).unwrap();
+                                }
                             }
                         }
                     } else {
@@ -57,7 +74,6 @@ fn main() -> std::io::Result<()> {
                         println!("Could not get client address");
                     }
                     clients.lock().unwrap().push(stream.try_clone().unwrap());
-                    // thread para tratar cada cliente separadamente
                     thread::spawn(move || {
                         handle_client(stream, client_number_clone, clients);
                     });
@@ -81,4 +97,5 @@ fn main() -> std::io::Result<()> {
             client.write_all(message.as_bytes()).unwrap();
         }
     }
+    Ok(())
 }

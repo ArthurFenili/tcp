@@ -32,5 +32,11 @@ fn main() -> std::io::Result<()> {
 
         let msg = input.trim().as_bytes();
         stream.write_all(msg)?;
+
+        if input.trim() == "END/" {
+            println!("Server shutting down.");
+            break;
+        }
     }
+    Ok(())
 }
