@@ -1,9 +1,33 @@
 use std::net::{TcpListener, TcpStream};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::fs::File;
+use sha2::{Sha256, Digest};
 
-fn handle_client(stream: TcpStream, client_number: i32, clients: Arc<Mutex<Vec<TcpStream>>>) {
+fn calculate_sha256<R: Read>(mut reader: R) -> io::Result<String> {
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    let result = hasher.finalize();
+    Ok(format!("{:x}", result))
+}
+
+
+fn send_file(mut stream: TcpStream, mut file: File, filename: &str) -> io::Result<()> {
+    let file_size = file.metadata()?.len();
+    let file_hash = calculate_sha256(&mut file)?;
+    println!("{}, {}, {}", filename, file_size, file_hash);
+    Ok(())
+}
+
+fn handle_client(mut stream: TcpStream, client_number: i32, clients: Arc<Mutex<Vec<TcpStream>>>) {
     let mut buffer = [0; 512];
     // loop para receber as mensagens dos clientes
     loop {
@@ -36,6 +60,20 @@ fn handle_client(stream: TcpStream, client_number: i32, clients: Arc<Mutex<Vec<T
                                     client.write_all(message.as_bytes()).unwrap();
                                 }
                             }
+                        }
+                        else if received.starts_with("FILE/ ") {
+                            let filename = &received[6..];
+                            
+                            match File::open(filename) {
+                                Ok(mut file) => {
+                                    send_file(stream.try_clone().unwrap(), file, filename);
+                                }
+                                Err(_) => {
+                                    let response = "File not found.";
+                                    stream.write_all(response.as_bytes()).unwrap();
+                                }
+                            }
+
                         }
                     } else {
                         println!("CLIENT {}: Received non-UTF8 data", client_number);
@@ -74,6 +112,7 @@ fn main() -> std::io::Result<()> {
                         println!("Could not get client address");
                     }
                     clients.lock().unwrap().push(stream.try_clone().unwrap());
+                    // thread para tratar cada cliente separadamente
                     thread::spawn(move || {
                         handle_client(stream, client_number_clone, clients);
                     });
