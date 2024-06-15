@@ -4,6 +4,25 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::fs::File;
 use sha2::{Sha256, Digest};
+use serde::{Serialize, Deserialize};
+use bincode;
+
+#[derive(Serialize, Deserialize)]
+struct Packet {    
+    sequence_number: u32,
+    data: Vec<u8>,
+    sha: String,
+}
+
+impl Packet {
+    fn new(sequence_number: u32, data: Vec<u8>, sha: String ) -> Self {
+        Packet { sequence_number, data, sha }
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+}
 
 fn calculate_sha256<R: Read>(mut reader: R) -> io::Result<String> {
     let mut hasher = Sha256::new();
@@ -24,6 +43,20 @@ fn send_file(mut stream: TcpStream, mut file: File, filename: &str) -> io::Resul
     let file_size = file.metadata()?.len();
     let file_hash = calculate_sha256(&mut file)?;
     println!("{}, {}, {}", filename, file_size, file_hash);
+
+    let mut buffer = [0; 4096];
+    let mut number = 0;
+    file.seek(SeekFrom::Start(0))?;
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        let packet = Packet::new(number, buffer[..bytes_read].to_vec(), file_hash.clone());
+        stream.write_all(&packet.as_bytes()).unwrap();
+        number += 1;
+    }
+
     Ok(())
 }
 

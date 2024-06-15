@@ -34,7 +34,7 @@ fn main() -> std::io::Result<()> {
         stream.write_all(msg)?;
 
         if input.trim() == "END/" {
-            println!("Server shutting down.");
+            println!("Disconnecting...");
             break;
         }
     }
