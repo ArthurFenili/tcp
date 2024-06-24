@@ -9,12 +9,15 @@ fn main() -> std::io::Result<()> {
     // thread para receber as mensagens do servidor a qualquer momento que forem enviadas
     let mut stream_clone = stream.try_clone().expect("Failed to clone stream");
     thread::spawn(move || {
-        let mut buffer = [0; 512];
+        let mut buffer = [0; 4096];
+        let mut number = 0;
         loop {
             match stream_clone.read(&mut buffer) {
                 Ok(size) => {
                     if size > 0 {
                         println!("{}", String::from_utf8_lossy(&buffer[..size]));
+                        number += 1;
+                        println!("{}", number);
                     }
                 }
                 Err(_) => {
@@ -30,10 +33,14 @@ fn main() -> std::io::Result<()> {
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
 
-        let msg = input.trim().as_bytes();
-        stream.write_all(msg)?;
+        if input.trim().starts_with("CHAT/ ") {
+            let msg = input.trim().as_bytes();
+            stream.write_all(msg)?;
+        } 
+        else if input.trim().starts_with("FILE/ ") {
 
-        if input.trim() == "END/" {
+        }
+        else if input.trim() == "END/" {
             println!("Disconnecting...");
             break;
         }
