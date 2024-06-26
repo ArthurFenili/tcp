@@ -20,7 +20,7 @@ impl Packet {
     }
 }
 
-fn send_file(mut stream: TcpStream, mut file: File, filename: &str) -> io::Result<()> {
+fn send_file(mut stream: TcpStream, mut file: File) -> io::Result<()> {
     let mut buffer = [0; 4096];
     let mut number = 0;
     loop {
@@ -48,7 +48,7 @@ fn handle_client(mut stream: TcpStream, client_number: i32, clients: Arc<Mutex<V
                 if size > 0 {
                     if let Ok(received) = std::str::from_utf8(&buffer[0..size]) {
                         if received.starts_with("END/") {
-                            let message = format!("CLIENT {} disconnected.", client_number);
+                            let message = format!("CLIENTE {} desconectado.", client_number);
                             println!("{}", message);
                             let mut clients_guard = clients.lock().unwrap();
                             if let Some(pos) = clients_guard.iter().position(|x| x.peer_addr().unwrap() == stream.peer_addr().unwrap()) {
@@ -74,21 +74,45 @@ fn handle_client(mut stream: TcpStream, client_number: i32, clients: Arc<Mutex<V
                             let filename = received.split('/').last().unwrap_or("").trim();
                             match File::open(filename) {
                                 Ok(mut file) => {
-                                    send_file(stream.try_clone().unwrap(), file, filename).unwrap();
+                                    //send_file(stream.try_clone().unwrap(), file).unwrap();
+                                    let mut buffer = [0; 4096];
+                                    let mut number = 0;
+                                    loop {
+                                        match file.read(&mut buffer) {
+                                            Ok(mut bytes_read) => {
+                                                if bytes_read == 0 {
+                                                    break;
+                                                }
+        
+                                                let mut hasher = Sha256::new();
+                                                hasher.update(&buffer[..bytes_read]);
+                                                let sha = format!("{:x}", hasher.finalize());
+                                
+                                                let packet = Packet::new(number, buffer[..bytes_read].to_vec(), sha);
+                                                let serialized_packet = bincode::serialize(&packet).unwrap();
+                                                stream.write_all(&serialized_packet);
+                                
+                                                number += 1;
+                                            }
+                                            Err(_) => {
+
+                                            }
+                                        }
+                                    }
                                 }
                                 Err(_) => {
-                                    let response = "File not found.";
+                                    let response = "Arquivo não encontrado.";
                                     stream.write_all(response.as_bytes()).unwrap();
                                 }
                             }
                         }
                     } else {
-                        println!("CLIENT {}: Received non-UTF8 data", client_number);
+                        println!("CLIENT {}: Dados não-UTF8 recebidos.", client_number);
                     }
                 }
             }
             Err(_) => {
-                println!("An error occurred, terminating connection with CLIENT {}", client_number);
+                println!("Erro: terminando conexão com cliente {}", client_number);
                 let mut clients_guard = clients.lock().unwrap();
                 if let Some(pos) = clients_guard.iter().position(|x| x.peer_addr().unwrap() == stream.peer_addr().unwrap()) {
                     clients_guard.remove(pos);
@@ -101,7 +125,7 @@ fn handle_client(mut stream: TcpStream, client_number: i32, clients: Arc<Mutex<V
 
 fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:7878")?;
-    println!("Server listening on port 7878");
+    println!("Servidor escutando na porta 7878...");
     let clients = Arc::new(Mutex::new(Vec::new()));
     let mut client_number: i32 = 1;
 
@@ -114,9 +138,9 @@ fn main() -> std::io::Result<()> {
                     let client_number_clone = client_number;
                     let clients = Arc::clone(&clients_for_server);
                     if let Ok(addr) = stream.peer_addr() {
-                        println!("Client connected: {}", addr);
+                        println!("Cliente conectado: {}", addr);
                     } else {
-                        println!("Could not get client address");
+                        println!("Não foi possível se conectar ao endereço do cliente");
                     }
                     clients.lock().unwrap().push(stream.try_clone().unwrap());
                     thread::spawn(move || {
@@ -125,7 +149,7 @@ fn main() -> std::io::Result<()> {
                     client_number += 1;
                 }
                 Err(e) => {
-                    eprintln!("Connection failed: {}", e);
+                    eprintln!("Conexão falhou: {}", e);
                 }
             }
         }

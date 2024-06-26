@@ -22,10 +22,10 @@ impl Packet {
 
 fn main() -> std::io::Result<()> {
     let mut stream = TcpStream::connect("127.0.0.1:7878")?;
-    println!("Successfully connected to server in port 7878");
+    println!("Conectado no servidor na porta 7878");
 
     // thread para receber as mensagens do servidor a qualquer momento que forem enviadas
-    let mut stream_clone = stream.try_clone().expect("Failed to clone stream");
+    let mut stream_clone = stream.try_clone().expect("Falha ao clonar stream");
     thread::spawn(move || {
         let mut buffer = [0; 4096];
         let mut number = 0;
@@ -37,7 +37,7 @@ fn main() -> std::io::Result<()> {
                     }
                 }
                 Err(_) => {
-                    println!("Connection closed by server");
+                    println!("Conexão fechada pelo servidor.");
                     break;
                 }
             }
@@ -45,6 +45,8 @@ fn main() -> std::io::Result<()> {
     });
 
     // loop sem thread para esperar o cliente escrever uma mensagem
+    let mut received_data = Vec::new();
+
     loop {
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
@@ -56,28 +58,54 @@ fn main() -> std::io::Result<()> {
         else if input.trim().starts_with("FILE/ ") {
             let request = input.trim().as_bytes();
             stream.write_all(request)?;
-
             loop {
                 let mut buffer = [0; 10000];
                 match stream.read(&mut buffer) {
                     Ok(size) => {
-                        bincode::deserialize::<String>(&buffer[..size])
                         if size > 0 {
-
+                            match bincode::deserialize::<Packet>(&buffer[..size]) {
+                                Ok(packet) => {
+                                    println!("Pacote {} recebido", packet.sequence_number);
+                                    received_data.extend_from_slice(&packet.data);
+                                }
+                                Err(err) => {
+                                    println!("Erro deserializando pacote: {:?}", err);
+                                    break;
+                                }
+                            }
+                        } else {
+                            break;
                         }
                     }
                     Err(_) => {
-                        println!("Error receiving file data");
+                        println!("Erro ao receber os dados do arquivo");
                         break;
                     }
                 }
             }
-
         }
         else if input.trim() == "END/" {
-            println!("Disconnecting...");
+            let msg = input.as_bytes();
+            stream.write_all(msg)?;
+            println!("Desconectando...");
             break;
         }
     }
+
+    let mut file = match std::fs::File::create("arquivo_recebido.jpg") {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("Erro ao criar o arquivo: {}", err);
+            return Err(err);
+        }
+    };
+    match file.write_all(&received_data) {
+        Ok(()) => println!("Arquivo recebido e salvo com sucesso."),
+        Err(err) => {
+            eprintln!("Erro ao salvar o arquivo: {}", err);
+            return Err(err);
+        }
+    };
+    
     Ok(())
 }
